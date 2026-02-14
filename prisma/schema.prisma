@@ -793,6 +793,7 @@ model Invoice {
   organizationId String @map("organization_id") @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id])
   centerId       String @map("center_id") @db.Uuid
+center         Center @relation(fields: [centerId], references: [id])
   guardianId     String @map("guardian_id") @db.Uuid
   guardian       User @relation(fields: [guardianId], references: [id])
 
@@ -926,6 +927,7 @@ model TimeOffRequest {
   userId         String @map("user_id") @db.Uuid
   user           User @relation(fields: [userId], references: [id])
   organizationId String @map("organization_id") @db.Uuid
+organization   Organization @relation(fields: [organizationId], references: [id])
 
   startDate  DateTime @map("start_date") @db.Date
   endDate    DateTime @map("end_date") @db.Date
