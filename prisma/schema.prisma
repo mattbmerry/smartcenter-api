@@ -1,0 +1,1262 @@
+// ============================================================================
+// KinderHub — Prisma Schema
+// Maps 1:1 to schema.sql — this is the ORM layer for the NestJS API
+// ============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch", "multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ──
+
+enum UserRole {
+  super_admin
+  org_owner
+  regional_director
+  center_director
+  lead_teacher
+  assistant_teacher
+  staff
+  parent
+  authorized_pickup
+}
+
+enum EnrollmentStatus {
+  lead
+  waitlisted
+  tour_scheduled
+  tour_completed
+  application_submitted
+  accepted
+  enrolled
+  withdrawn
+  graduated
+}
+
+enum AttendanceType {
+  check_in
+  check_out
+  absent_excused
+  absent_unexcused
+  late_arrival
+  early_pickup
+}
+
+enum CheckInMethod {
+  qr_code
+  nfc_tap
+  pin_code
+  geo_fence
+  manual
+  kiosk
+}
+
+enum ActivityType {
+  meal
+  snack
+  nap_start
+  nap_end
+  diaper
+  bathroom
+  medication
+  photo
+  video
+  note
+  milestone
+  incident
+  mood_check
+  outdoor_play
+  learning_activity
+  art
+  music
+  reading
+}
+
+enum MealType {
+  breakfast
+  am_snack
+  lunch
+  pm_snack
+  dinner
+}
+
+enum InvoiceStatus {
+  draft
+  pending
+  sent
+  paid
+  partial
+  overdue
+  void
+  refunded
+}
+
+enum PaymentMethod {
+  ach
+  credit_card
+  debit_card
+  cash
+  check
+  subsidy
+  scholarship
+}
+
+enum MessageType {
+  direct
+  group
+  announcement
+  emergency
+  newsletter
+}
+
+enum SubscriptionPlan {
+  starter
+  growth
+  enterprise
+  franchise
+}
+
+enum SubscriptionStatus {
+  trialing
+  active
+  past_due
+  canceled
+  paused
+}
+
+// ============================================================================
+// 1. ORGANIZATIONS
+// ============================================================================
+
+model Organization {
+  id   String @id @default(uuid()) @db.Uuid
+  name String @db.VarChar(255)
+  slug String @unique @db.VarChar(100)
+  logoUrl String? @map("logo_url")
+
+  // Subscription
+  subscriptionPlan   SubscriptionPlan   @default(starter) @map("subscription_plan")
+  subscriptionStatus SubscriptionStatus @default(trialing) @map("subscription_status")
+  stripeCustomerId     String? @map("stripe_customer_id") @db.VarChar(255)
+  stripeSubscriptionId String? @map("stripe_subscription_id") @db.VarChar(255)
+  trialEndsAt          DateTime? @map("trial_ends_at") @db.Timestamptz()
+
+  // Settings
+  settings        Json @default("{}")
+  featuresEnabled Json @default("[]") @map("features_enabled")
+
+  // Franchise
+  parentOrgId      String?       @map("parent_org_id") @db.Uuid
+  parentOrg        Organization? @relation("FranchiseChildren", fields: [parentOrgId], references: [id])
+  childOrgs        Organization[] @relation("FranchiseChildren")
+  isFranchiseParent Boolean @default(false) @map("is_franchise_parent")
+  brandConfig      Json @default("{}") @map("brand_config")
+
+  // Timestamps
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz()
+
+  // Relations
+  centers          Center[]
+  classrooms       Classroom[]
+  memberships      UserMembership[]
+  children         Child[]
+  attendanceRecords AttendanceRecord[]
+  activities       Activity[]
+  media            Media[]
+  dailySummaries   DailySummary[]
+  conversations    Conversation[]
+  billingPlans     BillingPlan[]
+  invoices         Invoice[]
+  payments         Payment[]
+  staffSchedules   StaffSchedule[]
+  lessonPlans      LessonPlan[]
+  milestoneObs     ChildMilestoneObservation[]
+  documentTemplates DocumentTemplate[]
+  childDocuments   ChildDocument[]
+  notifications    Notification[]
+  waitlistEntries  WaitlistEntry[]
+  incidentReports  IncidentReport[]
+  auditLogs        AuditLog[]
+  timeOffRequests  TimeOffRequest[]
+
+  @@map("organizations")
+}
+
+// ============================================================================
+// 2. CENTERS
+// ============================================================================
+
+model Center {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  name     String @db.VarChar(255)
+  slug     String @db.VarChar(100)
+
+  // Location
+  addressLine1 String? @map("address_line1") @db.VarChar(255)
+  addressLine2 String? @map("address_line2") @db.VarChar(255)
+  city         String? @db.VarChar(100)
+  state        String? @db.VarChar(50)
+  zipCode      String? @map("zip_code") @db.VarChar(20)
+  country      String  @default("US") @db.VarChar(3)
+  latitude     Decimal? @db.Decimal(10, 8)
+  longitude    Decimal? @db.Decimal(11, 8)
+  timezone     String  @default("America/New_York") @db.VarChar(50)
+
+  // Contact
+  phone   String? @db.VarChar(30)
+  email   String? @db.VarChar(255)
+  website String? @db.VarChar(500)
+
+  // Operational
+  licensedCapacity    Int? @map("licensed_capacity")
+  licenseNumber       String? @map("license_number") @db.VarChar(100)
+  licenseExpiry       DateTime? @map("license_expiry") @db.Date
+  operatingHours      Json @default("{}") @map("operating_hours")
+  settings            Json @default("{}")
+  geoFenceRadiusMeters Int @default(200) @map("geo_fence_radius_meters")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz()
+
+  // Relations
+  classrooms       Classroom[]
+  memberships      UserMembership[]
+  children         Child[]
+  attendanceRecords AttendanceRecord[]
+  activities       Activity[]
+  conversations    Conversation[]
+  billingPlans     BillingPlan[]
+  invoices         Invoice[]
+  staffSchedules   StaffSchedule[]
+  waitlistEntries  WaitlistEntry[]
+  incidentReports  IncidentReport[]
+  mealRecords      MealRecord[]
+
+  @@unique([organizationId, slug])
+  @@map("centers")
+}
+
+// ============================================================================
+// 3. CLASSROOMS
+// ============================================================================
+
+model Classroom {
+  id             String @id @default(uuid()) @db.Uuid
+  centerId       String @map("center_id") @db.Uuid
+  center         Center @relation(fields: [centerId], references: [id])
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  name              String @db.VarChar(100)
+  ageRangeMinMonths Int?   @map("age_range_min_months")
+  ageRangeMaxMonths Int?   @map("age_range_max_months")
+  capacity          Int
+  requiredStaffRatio Decimal? @map("required_staff_ratio") @db.Decimal(4, 2)
+  color             String? @db.VarChar(7)
+  icon              String? @db.VarChar(50)
+  displayOrder      Int @default(0) @map("display_order")
+  scheduleType      String @default("full_day") @map("schedule_type") @db.VarChar(20)
+  settings          Json @default("{}")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz()
+
+  // Relations
+  children    Child[]
+  assignments ClassroomAssignment[]
+  activities  Activity[]
+  lessonPlans LessonPlan[]
+  staffShifts StaffShift[]
+  waitlistEntries WaitlistEntry[]
+  mealRecords MealRecord[]
+
+  @@map("classrooms")
+}
+
+// ============================================================================
+// 4. USERS
+// ============================================================================
+
+model User {
+  id              String @id @default(uuid()) @db.Uuid
+  authProviderId  String? @unique @map("auth_provider_id") @db.VarChar(255)
+  email           String @db.VarChar(255)
+  phone           String? @db.VarChar(30)
+  passwordHash    String? @map("password_hash") @db.VarChar(255)
+
+  firstName       String @map("first_name") @db.VarChar(100)
+  lastName        String @map("last_name") @db.VarChar(100)
+  preferredName   String? @map("preferred_name") @db.VarChar(100)
+  avatarUrl       String? @map("avatar_url")
+  dateOfBirth     DateTime? @map("date_of_birth") @db.Date
+
+  preferredLanguage       String @default("en") @map("preferred_language") @db.VarChar(10)
+  notificationPreferences Json @default("{\"push\":true,\"sms\":true,\"email\":true}") @map("notification_preferences")
+
+  lastLoginAt    DateTime? @map("last_login_at") @db.Timestamptz()
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz()
+  phoneVerifiedAt DateTime? @map("phone_verified_at") @db.Timestamptz()
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz()
+
+  // Relations
+  memberships      UserMembership[]
+  guardianOf       ChildGuardian[]
+  classroomAssignments ClassroomAssignment[]
+  activitiesRecorded Activity[]
+  mediaUploaded    Media[]
+  messagesSent     Message[]
+  conversationParticipations ConversationParticipant[]
+  childBillings    ChildBilling[] @relation("BillingGuardian")
+  invoicesReceived Invoice[]
+  paymentsReceived Payment[]
+  staffShifts      StaffShift[]
+  timeOffRequests  TimeOffRequest[]
+  lessonPlansCreated LessonPlan[]
+  milestoneObservations ChildMilestoneObservation[]
+  incidentsReported IncidentReport[]
+  notifications    Notification[]
+  checkedInBy      AttendanceRecord[] @relation("CheckedInBy")
+  checkedOutBy     AttendanceRecord[] @relation("CheckedOutBy")
+  schedulesPublished StaffSchedule[] @relation("PublishedBy")
+  timeOffReviewed  TimeOffRequest[] @relation("ReviewedBy")
+  docsSigned       ChildDocument[] @relation("SignedBy")
+  auditLogs        AuditLog[]
+
+  @@map("users")
+}
+
+// ============================================================================
+// 5. USER MEMBERSHIPS (Role assignments)
+// ============================================================================
+
+model UserMembership {
+  id             String @id @default(uuid()) @db.Uuid
+  userId         String @map("user_id") @db.Uuid
+  user           User @relation(fields: [userId], references: [id])
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  centerId       String? @map("center_id") @db.Uuid
+  center         Center? @relation(fields: [centerId], references: [id])
+
+  role              UserRole
+  hireDate          DateTime? @map("hire_date") @db.Date
+  hourlyRate        Decimal? @map("hourly_rate") @db.Decimal(8, 2)
+  isLead            Boolean @default(false) @map("is_lead")
+  certifications    Json @default("[]")
+  customPermissions Json @default("{}") @map("custom_permissions")
+  isActive          Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@unique([userId, organizationId, centerId, role])
+  @@map("user_memberships")
+}
+
+// ============================================================================
+// 6. CHILDREN
+// ============================================================================
+
+model Child {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  centerId       String @map("center_id") @db.Uuid
+  center         Center @relation(fields: [centerId], references: [id])
+  classroomId    String? @map("classroom_id") @db.Uuid
+  classroom      Classroom? @relation(fields: [classroomId], references: [id])
+
+  firstName       String @map("first_name") @db.VarChar(100)
+  lastName        String @map("last_name") @db.VarChar(100)
+  preferredName   String? @map("preferred_name") @db.VarChar(100)
+  dateOfBirth     DateTime @map("date_of_birth") @db.Date
+  gender          String? @db.VarChar(20)
+  avatarUrl       String? @map("avatar_url")
+
+  enrollmentStatus  EnrollmentStatus @default(lead) @map("enrollment_status")
+  enrollmentDate    DateTime? @map("enrollment_date") @db.Date
+  expectedStartDate DateTime? @map("expected_start_date") @db.Date
+  withdrawalDate    DateTime? @map("withdrawal_date") @db.Date
+
+  scheduledDays      Json @default("[\"mon\",\"tue\",\"wed\",\"thu\",\"fri\"]") @map("scheduled_days")
+  dropOffTime        String? @map("drop_off_time") // stored as HH:MM
+  pickupTime         String? @map("pickup_time")
+
+  allergies          Json @default("[]")
+  medicalConditions  Json @default("[]") @map("medical_conditions")
+  medications        Json @default("[]")
+  dietaryRestrictions Json @default("[]") @map("dietary_restrictions")
+  pediatricianName   String? @map("pediatrician_name") @db.VarChar(255)
+  pediatricianPhone  String? @map("pediatrician_phone") @db.VarChar(30)
+  emergencyContacts  Json @default("[]") @map("emergency_contacts")
+  notes              String?
+  metadata           Json @default("{}")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz()
+
+  // Relations
+  guardians         ChildGuardian[]
+  attendanceRecords AttendanceRecord[]
+  activities        Activity[]
+  dailySummaries    DailySummary[]
+  childBillings     ChildBilling[]
+  milestoneObs      ChildMilestoneObservation[]
+  documents         ChildDocument[]
+  incidentReports   IncidentReport[]
+  childMedia        ChildMedia[]
+  conversations     Conversation[]
+  invoiceLineItems  InvoiceLineItem[]
+
+  @@map("children")
+}
+
+// ============================================================================
+// 7. CHILD GUARDIANS
+// ============================================================================
+
+model ChildGuardian {
+  id      String @id @default(uuid()) @db.Uuid
+  childId String @map("child_id") @db.Uuid
+  child   Child @relation(fields: [childId], references: [id])
+  userId  String @map("user_id") @db.Uuid
+  user    User @relation(fields: [userId], references: [id])
+
+  relationship       String @db.VarChar(50)
+  isPrimary          Boolean @default(false) @map("is_primary")
+  isEmergencyContact Boolean @default(true) @map("is_emergency_contact")
+  isAuthorizedPickup Boolean @default(true) @map("is_authorized_pickup")
+  isBillingContact   Boolean @default(false) @map("is_billing_contact")
+  billingSplitPercent Decimal @default(100) @map("billing_split_percent") @db.Decimal(5, 2)
+  photoUrl           String? @map("photo_url")
+  pinCode            String? @map("pin_code") @db.VarChar(10)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@unique([childId, userId])
+  @@map("child_guardians")
+}
+
+// ============================================================================
+// 8. CLASSROOM ASSIGNMENTS
+// ============================================================================
+
+model ClassroomAssignment {
+  id             String @id @default(uuid()) @db.Uuid
+  classroomId    String @map("classroom_id") @db.Uuid
+  classroom      Classroom @relation(fields: [classroomId], references: [id])
+  userId         String @map("user_id") @db.Uuid
+  user           User @relation(fields: [userId], references: [id])
+  organizationId String @map("organization_id") @db.Uuid
+
+  isLead        Boolean @default(false) @map("is_lead")
+  effectiveFrom DateTime @default(now()) @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@map("classroom_assignments")
+}
+
+// ============================================================================
+// 9. ATTENDANCE RECORDS
+// ============================================================================
+
+model AttendanceRecord {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  centerId       String @map("center_id") @db.Uuid
+  center         Center @relation(fields: [centerId], references: [id])
+  childId        String @map("child_id") @db.Uuid
+  child          Child @relation(fields: [childId], references: [id])
+
+  date           DateTime @db.Date
+  attendanceType AttendanceType @map("attendance_type")
+  checkInMethod  CheckInMethod? @map("check_in_method")
+
+  checkedInAt  DateTime? @map("checked_in_at") @db.Timestamptz()
+  checkedOutAt DateTime? @map("checked_out_at") @db.Timestamptz()
+  checkedInById  String? @map("checked_in_by") @db.Uuid
+  checkedInBy    User? @relation("CheckedInBy", fields: [checkedInById], references: [id])
+  checkedOutById String? @map("checked_out_by") @db.Uuid
+  checkedOutBy   User? @relation("CheckedOutBy", fields: [checkedOutById], references: [id])
+
+  pickupPersonName String? @map("pickup_person_name") @db.VarChar(255)
+  pickupVerified   Boolean @default(false) @map("pickup_verified")
+  healthCheckPassed Boolean? @map("health_check_passed")
+  healthCheckNotes  String? @map("health_check_notes")
+  temperature      Decimal? @db.Decimal(4, 1)
+  notes            String?
+  metadata         Json @default("{}")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@map("attendance_records")
+}
+
+// ============================================================================
+// 10. ACTIVITIES
+// ============================================================================
+
+model Activity {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  centerId       String @map("center_id") @db.Uuid
+  center         Center @relation(fields: [centerId], references: [id])
+  classroomId    String? @map("classroom_id") @db.Uuid
+  classroom      Classroom? @relation(fields: [classroomId], references: [id])
+  childId        String @map("child_id") @db.Uuid
+  child          Child @relation(fields: [childId], references: [id])
+  recordedById   String @map("recorded_by") @db.Uuid
+  recordedBy     User @relation(fields: [recordedById], references: [id])
+
+  activityType ActivityType @map("activity_type")
+  occurredAt   DateTime @default(now()) @map("occurred_at") @db.Timestamptz()
+
+  title       String? @db.VarChar(255)
+  description String?
+  aiSummary   String? @map("ai_summary")
+
+  // Meal
+  mealType  MealType? @map("meal_type")
+  mealItems Json? @map("meal_items")
+  mealAmount String? @map("meal_amount") @db.VarChar(20)
+
+  // Nap
+  napStartTime DateTime? @map("nap_start_time") @db.Timestamptz()
+  napEndTime   DateTime? @map("nap_end_time") @db.Timestamptz()
+  napQuality   String? @map("nap_quality") @db.VarChar(20)
+
+  // Diaper
+  diaperType String? @map("diaper_type") @db.VarChar(20)
+
+  // Mood
+  mood String? @db.VarChar(20)
+
+  // Medication
+  medicationName String? @map("medication_name") @db.VarChar(255)
+  medicationDose String? @map("medication_dose") @db.VarChar(100)
+
+  // Milestone
+  milestoneCategory String? @map("milestone_category") @db.VarChar(100)
+  milestoneName     String? @map("milestone_name") @db.VarChar(255)
+
+  visibleToParents Boolean @default(true) @map("visible_to_parents")
+  isFlagged        Boolean @default(false) @map("is_flagged")
+  metadata         Json @default("{}")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  activityMedia ActivityMedia[]
+
+  @@map("activities")
+}
+
+// ============================================================================
+// 11. MEDIA
+// ============================================================================
+
+model Media {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  uploadedById   String @map("uploaded_by") @db.Uuid
+  uploadedBy     User @relation(fields: [uploadedById], references: [id])
+
+  fileUrl      String @map("file_url")
+  thumbnailUrl String? @map("thumbnail_url")
+  fileType     String @map("file_type") @db.VarChar(20)
+  fileSizeBytes BigInt? @map("file_size_bytes")
+  mimeType     String? @map("mime_type") @db.VarChar(100)
+
+  aiTags             Json @default("[]") @map("ai_tags")
+  aiChildrenDetected Json @default("[]") @map("ai_children_detected")
+  aiProcessedAt      DateTime? @map("ai_processed_at") @db.Timestamptz()
+  caption            String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  activityMedia ActivityMedia[]
+  childMedia    ChildMedia[]
+
+  @@map("media")
+}
+
+model ActivityMedia {
+  activityId   String @map("activity_id") @db.Uuid
+  activity     Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  mediaId      String @map("media_id") @db.Uuid
+  media        Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  displayOrder Int @default(0) @map("display_order")
+
+  @@id([activityId, mediaId])
+  @@map("activity_media")
+}
+
+model ChildMedia {
+  childId     String @map("child_id") @db.Uuid
+  child       Child @relation(fields: [childId], references: [id])
+  mediaId     String @map("media_id") @db.Uuid
+  media       Media @relation(fields: [mediaId], references: [id])
+  isAiTagged  Boolean @default(false) @map("is_ai_tagged")
+  isConfirmed Boolean @default(false) @map("is_confirmed")
+
+  @@id([childId, mediaId])
+  @@map("child_media")
+}
+
+// ============================================================================
+// 12. AI DAILY SUMMARIES
+// ============================================================================
+
+model DailySummary {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  childId        String @map("child_id") @db.Uuid
+  child          Child @relation(fields: [childId], references: [id])
+
+  date           DateTime @db.Date
+  summaryText    String @map("summary_text")
+  summaryHtml    String? @map("summary_html")
+  highlights     Json @default("[]")
+
+  totalActivities Int @default(0) @map("total_activities")
+  mealsEaten      Int @default(0) @map("meals_eaten")
+  napDurationMins Int @default(0) @map("nap_duration_minutes")
+  photosCount     Int @default(0) @map("photos_count")
+
+  aiGeneratedAt   DateTime? @map("ai_generated_at") @db.Timestamptz()
+  teacherReviewed Boolean @default(false) @map("teacher_reviewed")
+  teacherEdited   Boolean @default(false) @map("teacher_edited")
+  sentToParents   Boolean @default(false) @map("sent_to_parents")
+  sentAt          DateTime? @map("sent_at") @db.Timestamptz()
+
+  aiModel           String? @map("ai_model") @db.VarChar(50)
+  aiPromptTokens    Int? @map("ai_prompt_tokens")
+  aiCompletionTokens Int? @map("ai_completion_tokens")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@unique([childId, date])
+  @@map("daily_summaries")
+}
+
+// ============================================================================
+// 13. MESSAGING
+// ============================================================================
+
+model Conversation {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  centerId       String? @map("center_id") @db.Uuid
+  center         Center? @relation(fields: [centerId], references: [id])
+  childId        String? @map("child_id") @db.Uuid
+  child          Child? @relation(fields: [childId], references: [id])
+
+  messageType MessageType @default(direct) @map("message_type")
+  subject     String? @db.VarChar(255)
+  isArchived  Boolean @default(false) @map("is_archived")
+  isUrgent    Boolean @default(false) @map("is_urgent")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  conversationId       String @map("conversation_id") @db.Uuid
+  conversation         Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId               String @map("user_id") @db.Uuid
+  user                 User @relation(fields: [userId], references: [id])
+  role                 String @default("member") @db.VarChar(20)
+  lastReadAt           DateTime? @map("last_read_at") @db.Timestamptz()
+  isMuted              Boolean @default(false) @map("is_muted")
+  receivesNotifications Boolean @default(true) @map("receives_notifications")
+
+  @@id([conversationId, userId])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id             String @id @default(uuid()) @db.Uuid
+  conversationId String @map("conversation_id") @db.Uuid
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  senderId       String @map("sender_id") @db.Uuid
+  sender         User @relation(fields: [senderId], references: [id])
+
+  content     String
+  contentHtml String? @map("content_html")
+  originalLanguage String? @map("original_language") @db.VarChar(10)
+  translations     Json @default("{}")
+  attachments      Json @default("[]")
+
+  isEdited  Boolean @default(false) @map("is_edited")
+  editedAt  DateTime? @map("edited_at") @db.Timestamptz()
+  isDeleted Boolean @default(false) @map("is_deleted")
+
+  aiSentiment       String? @map("ai_sentiment") @db.VarChar(20)
+  aiRequiresResponse Boolean @default(false) @map("ai_requires_response")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@map("messages")
+}
+
+// ============================================================================
+// 14. BILLING
+// ============================================================================
+
+model BillingPlan {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  centerId       String? @map("center_id") @db.Uuid
+  center         Center? @relation(fields: [centerId], references: [id])
+
+  name        String @db.VarChar(255)
+  description String?
+  amount      Decimal @db.Decimal(10, 2)
+  frequency   String @default("monthly") @db.VarChar(20)
+
+  siblingDiscountPercent Decimal @default(0) @map("sibling_discount_percent") @db.Decimal(5, 2)
+  registrationFee       Decimal @default(0) @map("registration_fee") @db.Decimal(10, 2)
+  annualSupplyFee       Decimal @default(0) @map("annual_supply_fee") @db.Decimal(10, 2)
+  isActive              Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  childBillings ChildBilling[]
+
+  @@map("billing_plans")
+}
+
+model ChildBilling {
+  id            String @id @default(uuid()) @db.Uuid
+  childId       String @map("child_id") @db.Uuid
+  child         Child @relation(fields: [childId], references: [id])
+  billingPlanId String @map("billing_plan_id") @db.Uuid
+  billingPlan   BillingPlan @relation(fields: [billingPlanId], references: [id])
+  guardianId    String @map("guardian_id") @db.Uuid
+  guardian      User @relation("BillingGuardian", fields: [guardianId], references: [id])
+
+  customAmount    Decimal? @map("custom_amount") @db.Decimal(10, 2)
+  discountAmount  Decimal @default(0) @map("discount_amount") @db.Decimal(10, 2)
+  discountReason  String? @map("discount_reason") @db.VarChar(255)
+  subsidyAmount   Decimal @default(0) @map("subsidy_amount") @db.Decimal(10, 2)
+  subsidyProvider String? @map("subsidy_provider") @db.VarChar(255)
+
+  autoPayEnabled         Boolean @default(false) @map("auto_pay_enabled")
+  stripePaymentMethodId  String? @map("stripe_payment_method_id") @db.VarChar(255)
+
+  effectiveFrom DateTime @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@map("child_billing")
+}
+
+model Invoice {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  centerId       String @map("center_id") @db.Uuid
+  guardianId     String @map("guardian_id") @db.Uuid
+  guardian       User @relation(fields: [guardianId], references: [id])
+
+  invoiceNumber String @map("invoice_number") @db.VarChar(50)
+  status        InvoiceStatus @default(draft)
+
+  subtotal      Decimal @db.Decimal(10, 2)
+  discountAmount Decimal @default(0) @map("discount_amount") @db.Decimal(10, 2)
+  taxAmount     Decimal @default(0) @map("tax_amount") @db.Decimal(10, 2)
+  total         Decimal @db.Decimal(10, 2)
+  amountPaid    Decimal @default(0) @map("amount_paid") @db.Decimal(10, 2)
+  balanceDue    Decimal @map("balance_due") @db.Decimal(10, 2)
+
+  issueDate   DateTime @map("issue_date") @db.Date
+  dueDate     DateTime @map("due_date") @db.Date
+  periodStart DateTime? @map("period_start") @db.Date
+  periodEnd   DateTime? @map("period_end") @db.Date
+
+  stripeInvoiceId String? @map("stripe_invoice_id") @db.VarChar(255)
+  paidAt          DateTime? @map("paid_at") @db.Timestamptz()
+  notes           String?
+  metadata        Json @default("{}")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  lineItems InvoiceLineItem[]
+  payments  Payment[]
+
+  @@map("invoices")
+}
+
+model InvoiceLineItem {
+  id        String @id @default(uuid()) @db.Uuid
+  invoiceId String @map("invoice_id") @db.Uuid
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  childId   String? @map("child_id") @db.Uuid
+  child     Child? @relation(fields: [childId], references: [id])
+
+  description String @db.VarChar(500)
+  quantity    Decimal @default(1) @db.Decimal(8, 2)
+  unitPrice   Decimal @map("unit_price") @db.Decimal(10, 2)
+  total       Decimal @db.Decimal(10, 2)
+  category    String? @db.VarChar(50)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@map("invoice_line_items")
+}
+
+model Payment {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  invoiceId      String? @map("invoice_id") @db.Uuid
+  invoice        Invoice? @relation(fields: [invoiceId], references: [id])
+  guardianId     String @map("guardian_id") @db.Uuid
+  guardian       User @relation(fields: [guardianId], references: [id])
+
+  amount        Decimal @db.Decimal(10, 2)
+  paymentMethod PaymentMethod @map("payment_method")
+
+  stripePaymentIntentId String? @map("stripe_payment_intent_id") @db.VarChar(255)
+  stripeChargeId        String? @map("stripe_charge_id") @db.VarChar(255)
+
+  status        String @default("pending") @db.VarChar(20)
+  failureReason String? @map("failure_reason")
+  processedAt   DateTime? @map("processed_at") @db.Timestamptz()
+  refundedAt    DateTime? @map("refunded_at") @db.Timestamptz()
+  refundAmount  Decimal? @map("refund_amount") @db.Decimal(10, 2)
+  notes         String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@map("payments")
+}
+
+// ============================================================================
+// 15. STAFF SCHEDULING
+// ============================================================================
+
+model StaffSchedule {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  centerId       String @map("center_id") @db.Uuid
+  center         Center @relation(fields: [centerId], references: [id])
+
+  weekStart   DateTime @map("week_start") @db.Date
+  status      String @default("draft") @db.VarChar(20)
+  publishedAt DateTime? @map("published_at") @db.Timestamptz()
+  publishedById String? @map("published_by") @db.Uuid
+  publishedBy   User? @relation("PublishedBy", fields: [publishedById], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  shifts StaffShift[]
+
+  @@unique([centerId, weekStart])
+  @@map("staff_schedules")
+}
+
+model StaffShift {
+  id          String @id @default(uuid()) @db.Uuid
+  scheduleId  String @map("schedule_id") @db.Uuid
+  schedule    StaffSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  userId      String @map("user_id") @db.Uuid
+  user        User @relation(fields: [userId], references: [id])
+  classroomId String? @map("classroom_id") @db.Uuid
+  classroom   Classroom? @relation(fields: [classroomId], references: [id])
+
+  shiftDate  DateTime @map("shift_date") @db.Date
+  startTime  String @map("start_time") // HH:MM
+  endTime    String @map("end_time")
+
+  actualStart       DateTime? @map("actual_start") @db.Timestamptz()
+  actualEnd         DateTime? @map("actual_end") @db.Timestamptz()
+  actualBreakMinutes Int? @map("actual_break_minutes")
+  isSubstitute      Boolean @default(false) @map("is_substitute")
+  notes             String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@map("staff_shifts")
+}
+
+model TimeOffRequest {
+  id             String @id @default(uuid()) @db.Uuid
+  userId         String @map("user_id") @db.Uuid
+  user           User @relation(fields: [userId], references: [id])
+  organizationId String @map("organization_id") @db.Uuid
+
+  startDate  DateTime @map("start_date") @db.Date
+  endDate    DateTime @map("end_date") @db.Date
+  type       String @db.VarChar(30)
+  reason     String?
+  status     String @default("pending") @db.VarChar(20)
+
+  reviewedById String? @map("reviewed_by") @db.Uuid
+  reviewedBy   User? @relation("ReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime? @map("reviewed_at") @db.Timestamptz()
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@map("time_off_requests")
+}
+
+// ============================================================================
+// 16. CURRICULUM
+// ============================================================================
+
+model LessonPlan {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  classroomId    String? @map("classroom_id") @db.Uuid
+  classroom      Classroom? @relation(fields: [classroomId], references: [id])
+  createdById    String @map("created_by") @db.Uuid
+  createdBy      User @relation(fields: [createdById], references: [id])
+
+  title       String @db.VarChar(255)
+  description String?
+  planDate    DateTime? @map("plan_date") @db.Date
+  weekStart   DateTime? @map("week_start") @db.Date
+
+  objectives        Json @default("[]")
+  materials         Json @default("[]")
+  activitiesPlanned Json @default("[]") @map("activities_planned")
+  stateStandards    Json @default("[]") @map("state_standards")
+
+  aiSuggested  Boolean @default(false) @map("ai_suggested")
+  aiAdaptedFor Json @default("[]") @map("ai_adapted_for")
+  status       String @default("draft") @db.VarChar(20)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@map("lesson_plans")
+}
+
+model DevelopmentalMilestone {
+  id        String @id @default(uuid()) @db.Uuid
+  domain    String @db.VarChar(100)
+  subdomain String? @db.VarChar(100)
+  name      String @db.VarChar(255)
+  description String?
+
+  ageRangeMinMonths Int? @map("age_range_min_months")
+  ageRangeMaxMonths Int? @map("age_range_max_months")
+  framework         String? @db.VarChar(100)
+  frameworkCode      String? @map("framework_code") @db.VarChar(50)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  observations ChildMilestoneObservation[]
+
+  @@map("developmental_milestones")
+}
+
+model ChildMilestoneObservation {
+  id             String @id @default(uuid()) @db.Uuid
+  childId        String @map("child_id") @db.Uuid
+  child          Child @relation(fields: [childId], references: [id])
+  milestoneId    String @map("milestone_id") @db.Uuid
+  milestone      DevelopmentalMilestone @relation(fields: [milestoneId], references: [id])
+  observedById   String @map("observed_by") @db.Uuid
+  observedBy     User @relation(fields: [observedById], references: [id])
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  observedAt DateTime @default(now()) @map("observed_at") @db.Timestamptz()
+  status     String @db.VarChar(20)
+  notes      String?
+
+  evidenceActivityIds Json @default("[]") @map("evidence_activity_ids")
+  evidenceMediaIds    Json @default("[]") @map("evidence_media_ids")
+  aiConfidence        Decimal? @map("ai_confidence") @db.Decimal(3, 2)
+  aiNextSteps         String? @map("ai_next_steps")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@map("child_milestone_observations")
+}
+
+// ============================================================================
+// 17. DOCUMENTS
+// ============================================================================
+
+model DocumentTemplate {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String? @map("organization_id") @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+
+  name         String @db.VarChar(255)
+  documentType String @map("document_type") @db.VarChar(50)
+  description  String?
+  fields       Json @default("[]")
+  templateHtml String? @map("template_html")
+
+  isRequired             Boolean @default(false) @map("is_required")
+  requiresSignature      Boolean @default(false) @map("requires_signature")
+  requiresAnnualRenewal  Boolean @default(false) @map("requires_annual_renewal")
+  applicableStates       Json @default("[]") @map("applicable_states")
+  isActive               Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  childDocuments ChildDocument[]
+
+  @@map("document_templates")
+}
+
+model ChildDocument {
+  id             String @id @default(uuid()) @db.Uuid
+  childId        String @map("child_id") @db.Uuid
+  child          Child @relation(fields: [childId], references: [id])
+  templateId     String? @map("template_id") @db.Uuid
+  template       DocumentTemplate? @relation(fields: [templateId], references: [id])
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  documentType String @map("document_type") @db.VarChar(50)
+  title        String @db.VarChar(255)
+  formData     Json @default("{}")  @map("form_data")
+  fileUrl      String? @map("file_url")
+
+  signedById   String? @map("signed_by") @db.Uuid
+  signedBy     User? @relation("SignedBy", fields: [signedById], references: [id])
+  signedAt     DateTime? @map("signed_at") @db.Timestamptz()
+  signatureUrl String? @map("signature_url")
+  status       String @default("pending") @db.VarChar(20)
+  expiresAt    DateTime? @map("expires_at") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@map("child_documents")
+}
+
+// ============================================================================
+// 18. NOTIFICATIONS
+// ============================================================================
+
+model Notification {
+  id             String @id @default(uuid()) @db.Uuid
+  userId         String @map("user_id") @db.Uuid
+  user           User @relation(fields: [userId], references: [id])
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  channel   String @db.VarChar(20) // push, sms, email, in_app
+  title     String @db.VarChar(255)
+  body      String
+
+  actionUrl     String? @map("action_url")
+  actionType    String? @map("action_type") @db.VarChar(50)
+  referenceId   String? @map("reference_id") @db.Uuid
+  referenceType String? @map("reference_type") @db.VarChar(50)
+
+  sentAt      DateTime? @map("sent_at") @db.Timestamptz()
+  deliveredAt DateTime? @map("delivered_at") @db.Timestamptz()
+  readAt      DateTime? @map("read_at") @db.Timestamptz()
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@map("notifications")
+}
+
+// ============================================================================
+// 19. WAITLIST
+// ============================================================================
+
+model WaitlistEntry {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  centerId       String @map("center_id") @db.Uuid
+  center         Center @relation(fields: [centerId], references: [id])
+  preferredClassroomId String? @map("preferred_classroom_id") @db.Uuid
+  preferredClassroom   Classroom? @relation(fields: [preferredClassroomId], references: [id])
+
+  childFirstName   String @map("child_first_name") @db.VarChar(100)
+  childLastName    String @map("child_last_name") @db.VarChar(100)
+  childDateOfBirth DateTime @map("child_date_of_birth") @db.Date
+
+  parentName  String @map("parent_name") @db.VarChar(255)
+  parentEmail String @map("parent_email") @db.VarChar(255)
+  parentPhone String? @map("parent_phone") @db.VarChar(30)
+
+  desiredStartDate DateTime? @map("desired_start_date") @db.Date
+  desiredSchedule  Json? @map("desired_schedule")
+  position         Int?
+  status           String @default("waiting") @db.VarChar(20)
+
+  childId String? @map("child_id") @db.Uuid
+  notes   String?
+  source  String? @db.VarChar(50)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@map("waitlist_entries")
+}
+
+// ============================================================================
+// 20. MEAL RECORDS (CACFP)
+// ============================================================================
+
+model MealRecord {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  centerId       String @map("center_id") @db.Uuid
+  center         Center @relation(fields: [centerId], references: [id])
+  classroomId    String? @map("classroom_id") @db.Uuid
+  classroom      Classroom? @relation(fields: [classroomId], references: [id])
+
+  date     DateTime @db.Date
+  mealType MealType @map("meal_type")
+
+  menuItems    Json @default("[]") @map("menu_items")
+  grainServed  Boolean @default(false) @map("grain_served")
+  proteinServed Boolean @default(false) @map("protein_served")
+  fruitServed  Boolean @default(false) @map("fruit_served")
+  vegetableServed Boolean @default(false) @map("vegetable_served")
+  milkServed   Boolean @default(false) @map("milk_served")
+
+  childrenServedCount Int @default(0) @map("children_served_count")
+  notes    String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@map("meal_records")
+}
+
+// ============================================================================
+// 21. INCIDENT REPORTS
+// ============================================================================
+
+model IncidentReport {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  centerId       String @map("center_id") @db.Uuid
+  center         Center @relation(fields: [centerId], references: [id])
+  childId        String @map("child_id") @db.Uuid
+  child          Child @relation(fields: [childId], references: [id])
+  reportedById   String @map("reported_by") @db.Uuid
+  reportedBy     User @relation(fields: [reportedById], references: [id])
+
+  incidentDate DateTime @map("incident_date") @db.Date
+  incidentTime String @map("incident_time") // HH:MM
+  location     String? @db.VarChar(255)
+  description  String
+  aiEnhancedDescription String? @map("ai_enhanced_description")
+
+  incidentType String @map("incident_type") @db.VarChar(50)
+  severity     String @db.VarChar(20)
+
+  actionTaken            String? @map("action_taken")
+  firstAidAdministered   Boolean @default(false) @map("first_aid_administered")
+  parentNotified         Boolean @default(false) @map("parent_notified")
+  parentNotifiedAt       DateTime? @map("parent_notified_at") @db.Timestamptz()
+  directorReviewed       Boolean @default(false) @map("director_reviewed")
+  directorReviewedAt     DateTime? @map("director_reviewed_at") @db.Timestamptz()
+  followUpRequired       Boolean @default(false) @map("follow_up_required")
+  followUpNotes          String? @map("follow_up_notes")
+  followUpCompletedAt    DateTime? @map("follow_up_completed_at") @db.Timestamptz()
+  mediaIds               Json @default("[]") @map("media_ids")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@map("incident_reports")
+}
+
+// ============================================================================
+// 22. AUDIT LOG
+// ============================================================================
+
+model AuditLog {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  userId         String? @map("user_id") @db.Uuid
+  user           User? @relation(fields: [userId], references: [id])
+
+  action     String @db.VarChar(100)
+  entityType String @map("entity_type") @db.VarChar(100)
+  entityId   String? @map("entity_id") @db.Uuid
+  changes    Json?
+  ipAddress  String? @map("ip_address") @db.VarChar(45)
+  userAgent  String? @map("user_agent")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@map("audit_log")
+}
+
+// ============================================================================
+// 23. LANDING PAGE SIGNUPS
+// ============================================================================
+
+model LandingPageSignup {
+  id    String @id @default(uuid()) @db.Uuid
+  email String @db.VarChar(255)
+  name  String? @db.VarChar(255)
+
+  centerName        String? @map("center_name") @db.VarChar(255)
+  centerSize        String? @map("center_size") @db.VarChar(50)
+  numberOfLocations Int @default(1) @map("number_of_locations")
+  role              String? @db.VarChar(50)
+
+  utmSource    String? @map("utm_source") @db.VarChar(100)
+  utmMedium    String? @map("utm_medium") @db.VarChar(100)
+  utmCampaign  String? @map("utm_campaign") @db.VarChar(100)
+  referralCode String? @map("referral_code") @db.VarChar(50)
+
+  convertedToOrgId String? @map("converted_to_org_id") @db.Uuid
+  convertedAt      DateTime? @map("converted_at") @db.Timestamptz()
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@map("landing_page_signups")
+}

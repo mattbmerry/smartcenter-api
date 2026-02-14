@@ -1,0 +1,49 @@
+# ============================================================================
+# docker-compose.yml — Local development stack
+# Run: docker-compose up -d
+# ============================================================================
+
+version: '3.9'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: kinderhub
+      POSTGRES_USER: kinderhub
+      POSTGRES_PASSWORD: password
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U kinderhub']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis (for caching, rate limiting, job queues)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+
+  # KinderHub API
+  api:
+    build: .
+    ports:
+      - '4000:4000'
+    environment:
+      DATABASE_URL: postgresql://kinderhub:password@db:5432/kinderhub?schema=public
+      NODE_ENV: development
+      PORT: 4000
+      JWT_SECRET: dev-secret-change-in-production
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src  # Hot reload in dev
+
+volumes:
+  pgdata:
